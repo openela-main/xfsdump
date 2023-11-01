@@ -1,0 +1,66 @@
+From 3b71c7f1f5a1dd45712d7de1139290d0a8cf03c4 Mon Sep 17 00:00:00 2001
+From: Gao Xiang <hsiangkao@redhat.com>
+Date: Thu, 3 Feb 2022 12:42:30 -0500
+Subject: [PATCH 1/2] xfsdump: Revert "xfsdump: handle bind mount targets"
+
+Bind mount mntpnts will be forbided in the next commits
+instead since it's not the real rootdir.
+
+This cannot be reverted cleanly due to several cleanup
+patches, but the logic is reverted equivalently.
+
+This reverts commit 25195ebf107dc81b1b7cea1476764950e1d6cc9d.
+
+Fixes: 25195ebf107d ("xfsdump: handle bind mount targets")
+Cc: Eric Sandeen <sandeen@redhat.com>
+Signed-off-by: Gao Xiang <hsiangkao@redhat.com>
+Reviewed-by: Eric Sandeen <sandeen@redhat.com>
+Signed-off-by: Eric Sandeen <sandeen@sandeen.net>
+---
+
+Index: xfsdump-3.1.8/dump/content.c
+===================================================================
+--- xfsdump-3.1.8.orig/dump/content.c
++++ xfsdump-3.1.8/dump/content.c
+@@ -1382,17 +1382,11 @@ baseuuidbypass:
+ 	}
+ 
+ 	/* figure out the ino for the root directory of the fs
+-	 * and get its xfs_bstat_t for inomap_build().  This could
+-	 * be a bind mount; don't ask for the mount point inode,
+-	 * find the actual lowest inode number in the filesystem.
++	 * and get its xfs_bstat_t for inomap_build()
+ 	 */
+ 	{
+ 		stat64_t rootstat;
+-		xfs_ino_t lastino = 0;
+-		int ocount = 0;
+-		xfs_fsop_bulkreq_t bulkreq;
+ 
+-		/* Get the inode of the mount point */
+ 		rval = fstat64( sc_fsfd, &rootstat );
+ 		if ( rval ) {
+ 			mlog( MLOG_NORMAL, _(
+@@ -1404,21 +1398,11 @@ baseuuidbypass:
+ 			( xfs_bstat_t * )calloc( 1, sizeof( xfs_bstat_t ));
+ 		assert( sc_rootxfsstatp );
+ 
+-		/* Get the first valid (i.e. root) inode in this fs */
+-		bulkreq.lastip = (__u64 *)&lastino;
+-		bulkreq.icount = 1;
+-		bulkreq.ubuffer = sc_rootxfsstatp;
+-		bulkreq.ocount = &ocount;
+-		if (ioctl(sc_fsfd, XFS_IOC_FSBULKSTAT, &bulkreq) < 0) {
++		if (bigstat_one(sc_fsfd, rootstat.st_ino, sc_rootxfsstatp) < 0) {
+ 			mlog( MLOG_ERROR,
+ 			      _("failed to get bulkstat information for root inode\n"));
+ 			return BOOL_FALSE;
+ 		}
+-
+-		if (sc_rootxfsstatp->bs_ino != rootstat.st_ino)
+-			mlog ( MLOG_NORMAL | MLOG_NOTE,
+-			       _("root ino %lld differs from mount dir ino %lld, bind mount?\n"),
+-			         sc_rootxfsstatp->bs_ino, rootstat.st_ino);
+ 	}
+ 	
+ 	/* alloc a file system handle, to be used with the jdm_open()
