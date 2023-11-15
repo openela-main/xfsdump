@@ -1,0 +1,100 @@
+From 0717c1cdfeaedc98df8af97b5ab110830e176a5b Mon Sep 17 00:00:00 2001
+From: Gao Xiang <hsiangkao@redhat.com>
+Date: Thu, 3 Feb 2022 12:42:30 -0500
+Subject: [PATCH 2/2] xfsdump: intercept bind mount targets
+
+It's a bit strange pointing at some non-root bind mount target and
+then actually dumping from the actual root dir instead.
+
+Therefore, instead of searching for the root dir of the filesystem,
+just intercept all bind mount targets by checking whose ino # of
+".." is itself with getdents.
+
+Fixes: 25195ebf107d ("xfsdump: handle bind mount targets")
+Cc: Eric Sandeen <sandeen@redhat.com>
+Signed-off-by: Gao Xiang <hsiangkao@redhat.com>
+[sandeen: add explanatory comment to new function]
+Reviewed-by: Eric Sandeen <sandeen@redhat.com>
+Signed-off-by: Eric Sandeen <sandeen@sandeen.net>
+---
+
+Index: xfsdump-3.1.8/dump/content.c
+===================================================================
+--- xfsdump-3.1.8.orig/dump/content.c
++++ xfsdump-3.1.8/dump/content.c
+@@ -511,6 +511,60 @@ static bool_t create_inv_session(
+ 		ix_t subtreecnt,
+ 		size_t strmix);
+ 
++/*
++ * Verify that we are asked to dump from the root of the filesystem;
++ * test this by checking whether the inode number we've been given matches
++ * the inode number for this directory's ".."
++ */
++static bool_t
++check_rootdir(int fd,
++	      xfs_ino_t ino)
++{
++	struct dirent	*gdp;
++	size_t		gdsz;
++	bool_t		found = BOOL_FALSE;
++
++	gdsz = sizeof(struct dirent) + NAME_MAX + 1;
++	if (gdsz < GETDENTSBUF_SZ_MIN)
++		gdsz = GETDENTSBUF_SZ_MIN;
++	gdp = (struct dirent *)calloc(1, gdsz);
++	assert(gdp);
++
++	while (1) {
++		struct dirent *p;
++		int nread;
++
++		nread = getdents_wrap(fd, (char *)gdp, gdsz);
++		/*
++		 * negative count indicates something very bad happened;
++		 * try to gracefully end this dir.
++		 */
++		if (nread < 0) {
++			mlog(MLOG_NORMAL | MLOG_WARNING,
++_("unable to read dirents for directory ino %llu: %s\n"),
++			      ino, strerror(errno));
++			break;
++		}
++
++		/* no more directory entries: break; */
++		if (!nread)
++			break;
++
++		for (p = gdp; nread > 0;
++		     nread -= (int)p->d_reclen,
++		     assert(nread >= 0),
++		     p = (struct dirent *)((char *)p + p->d_reclen)) {
++			if (!strcmp(p->d_name, "..")) {
++				if (p->d_ino == ino)
++					found = BOOL_TRUE;
++				break;
++			}
++		}
++	}
++	free(gdp);
++	return found;
++}
++
+ bool_t
+ content_init( int argc,
+ 	      char *argv[ ],
+@@ -1394,6 +1448,14 @@ baseuuidbypass:
+ 			      mntpnt );
+ 			return BOOL_FALSE;
+ 		}
++
++		if (!check_rootdir(sc_fsfd, rootstat.st_ino)) {
++			mlog(MLOG_ERROR,
++_("%s is not the root of the filesystem (bind mount?) - use primary mountpoint\n"),
++			     mntpnt);
++			return BOOL_FALSE;
++		}
++
+ 		sc_rootxfsstatp =
+ 			( xfs_bstat_t * )calloc( 1, sizeof( xfs_bstat_t ));
+ 		assert( sc_rootxfsstatp );
