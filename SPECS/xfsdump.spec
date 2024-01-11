@@ -1,19 +1,21 @@
 Summary:	Backup and restore utilities for the XFS filesystem
 Name:		xfsdump
-Version:	3.1.10
-Release:	1%{?dist}
+Version:	3.1.12
+Release:	3%{?dist}
 # Licensing based on generic "GNU GENERAL PUBLIC LICENSE"
 # in source, with no mention of version.
 License:	GPL+
 Source0:	http://kernel.org/pub/linux/utils/fs/xfs/%{name}/%{name}-%{version}.tar.xz
 Source1:	http://kernel.org/pub/linux/utils/fs/xfs/%{name}/%{name}-%{version}.tar.sign
-Source2:	https://git.kernel.org/pub/scm/docs/kernel/pgpkeys.git/plain/keys/20AE1692E13DDEE0.asc
+Source2:	https://git.kernel.org/pub/scm/docs/kernel/pgpkeys.git/plain/keys/13F703E6C11CF6F0.asc
 BuildRequires:	make
 BuildRequires:	gcc
 BuildRequires:	libtool, gettext, gawk
 BuildRequires:	xfsprogs-devel, libuuid-devel, libattr-devel ncurses-devel
 BuildRequires:	gnupg2, xz
 Requires:	xfsprogs >= 2.6.30, attr >= 2.0.0
+
+Patch0:		0001-for-next-xfsrestore-fix-rootdir-due-to-xfsdump-bulkstat-misus.patch
 
 %description
 The xfsdump package contains xfsdump, xfsrestore and a number of
@@ -34,7 +36,7 @@ subtrees may be restored from full or partial backups.
 
 %prep
 xzcat '%{SOURCE0}' | %{gpgverify} --keyring='%{SOURCE2}' --signature='%{SOURCE1}' --data=-
-%setup -q
+%autosetup -p1
 
 %build
 %configure
@@ -63,6 +65,22 @@ mkdir -p $RPM_BUILD_ROOT/%{_sharedstatedir}/xfsdump/inventory
 %{_sharedstatedir}/xfsdump/inventory
 
 %changelog
+* Mon Jun 26 2023 Pavel Reichl <preichl@redhat.com> - 3.1.12-3
+- xfsdump: restoring inventory prevents non-directory files being restored from tape,
+- actually fixed by rebase to 3.1.12
+- related: bz#2166557
+- xfsrestore: Files from the backup go to orphanage dir because of xfsdump issue
+- related: bz#2034327
+
+* Tue Apr 18 2023 Pavel Reichl <preichl@redhat.com> - 3.1.12-2
+- rebuilt, Fix wrongly associated bugzilla
+  Related: rhbz#2181660
+
+* Mon Apr 17 2023 Pavel Reichl <preichl@redhat.com> - 3.1.12-1
+- New upstream release
+- Use Cem's pgp key instead of Eric's
+  Related: rhbz#2181660
+
 * Fri Feb 11 2022 Eric Sandeen <sandeen@redhat.com> 3.1.10-1
 - New upstream release
 - Resolve issue with bind mounts / root inode mismatch (#2034324)
