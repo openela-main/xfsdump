@@ -1,7 +1,7 @@
 Summary: Administrative utilities for the XFS filesystem
 Name: xfsdump
 Version: 3.1.8
-Release: 4%{?dist}
+Release: 6%{?dist}
 # Licensing based on generic "GNU GENERAL PUBLIC LICENSE"
 # in source, with no mention of version.
 License: GPL+
@@ -10,6 +10,12 @@ URL: http://oss.sgi.com/projects/xfs/
 Source0: http://kernel.org/pub/linux/utils/fs/xfs/%{name}/%{name}-%{version}.tar.xz
 Patch0: 0001-xfsdump-Revert-xfsdump-handle-bind-mount-targets.patch
 Patch1: 0002-xfsdump-intercept-bind-mount-targets.patch
+Patch2: 0003-for-next-xfsrestore-fix-rootdir-due-to-xfsdump-bulkstat-misus.patch
+Patch3: 0004-v3.1.9-common-types.h-Wrap-define-UUID_STR_LEN-36-in-ifndef.patch
+Patch4: 0005-v3.1.12-xfsrestore-fix-on-media-inventory-media-unpacking.patch
+Patch5: 0006-v3.1.12-xfsrestore-fix-on-media-inventory-stream-unpacking.patch
+Patch6: 0007-v3.1.12-xfsdump-fix-on-media-inventory-stream-packing.patch
+Patch7: 0008-v3.1.12-xfsrestore-untangle-inventory-unpacking-logic.patch
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires: libtool, gettext, gawk
 BuildRequires: xfsprogs-devel, libuuid-devel, libattr-devel ncurses-devel
@@ -36,6 +42,12 @@ subtrees may be restored from full or partial backups.
 %setup -q
 %patch0 -p1
 %patch1 -p1
+%patch2 -p1
+%patch3 -p1
+%patch4 -p1
+%patch5 -p1
+%patch6 -p1
+%patch7 -p1
 
 %build
 %configure
@@ -69,6 +81,14 @@ rm -rf $RPM_BUILD_ROOT
 %{_sharedstatedir}/xfsdump/inventory
 
 %changelog
+* Tue Jun 20 2023 Pavel Reichl <preichl@redhat.com> - 3.1.8-6
+- xfsdump: restoring inventory prevents non-directory files being restored from tape
+- related: bz#2166554
+
+* Mon Jun 19 2023 Pavel Reichl <preichl@redhat.com> - 3.1.8-5
+- xfsrestore: Files from the backup go to orphanage dir because of xfsdump issue
+- related: bz#2055289
+
 * Fri Feb 11 2022 Eric Sandeen <sandeen@redhat.com> 3.1.8-4
 - Fix bind mount vs root inode problems (#2020494)
 

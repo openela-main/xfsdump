@@ -1,0 +1,38 @@
+From 6ff49bf7951e5951bd8f938fc3662c896a1bf9e8 Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Thu, 6 Dec 2018 17:10:00 -0600
+Subject: [PATCH] common/types.h: Wrap #define UUID_STR_LEN 36 in #ifndef
+
+Current Fedora 28 has the constant it in uuid/uuid.h where it belongs (per
+comment next to the define), so we should treat the define as a
+backward-compatibility workaround, rather than enforcing it for all.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+[sandeen: tweak comment to match]
+Reviewed-by: Eric Sandeen <sandeen@redhat.com>
+Signed-off-by: Eric Sandeen <sandeen@sandeen.net>
+Signed-off-by: Pavel Reichl <preichl@redhat.com>
+---
+ common/types.h | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/common/types.h b/common/types.h
+index 50c841e..b619667 100644
+--- a/common/types.h
++++ b/common/types.h
+@@ -33,9 +33,11 @@
+ #define XFSDUMP_DIRPATH	inv_basepath()
+ 
+ /*
+- * Should be, but isn't, defined in uuid/uuid.h
++ * If not defined in uuid/uuid.h
+  */
++#ifndef UUID_STR_LEN
+ #define UUID_STR_LEN	36
++#endif
+ 
+ /* fundamental page size - probably should not be hardwired, but
+  * for now we will
+-- 
+2.41.0
+

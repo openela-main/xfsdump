@@ -1,0 +1,149 @@
+From 06dd184d3a689dcb33a50b6e3576e48055e48133 Mon Sep 17 00:00:00 2001
+From: Donald Douwsma <ddouwsma@redhat.com>
+Date: Fri, 14 Oct 2022 18:58:44 +1100
+Subject: [PATCH 1/4] xfsrestore: fix on-media inventory media unpacking
+
+When xfsrestore reads the inventory from tape media it fails to convert
+media file records from bigendian. If the xfsdump inventory is not
+available xfsrestore will write this invalid record to the on-line
+inventory.
+
+[root@rhel8 ~]# xfsdump -L Test1 -M "" -f /dev/st0 /boot > /dev/null
+[root@rhel8 ~]# xfsdump -L Test2 -M "" -f /dev/st0 /boot > /dev/null
+[root@rhel8 ~]# rm -rf /var/lib/xfsdump/inventory/
+[root@rhel8 ~]# mt -f /dev/nst0 asf 2
+[root@rhel8 ~]# xfsrestore -f /dev/nst0 -L Test2 /tmp/test2
+xfsrestore: using scsi tape (drive_scsitape) strategy
+xfsrestore: version 3.1.8 (dump format 3.0) - type ^C for status and control
+xfsrestore: searching media for dump
+xfsrestore: preparing drive
+xfsrestore: examining media file 3
+xfsrestore: found dump matching specified label:
+xfsrestore: hostname: rhel8
+xfsrestore: mount point: /boot
+xfsrestore: volume: /dev/sda1
+xfsrestore: session time: Tue Sep 27 16:05:28 2022
+xfsrestore: level: 0
+xfsrestore: session label: "Test2"
+xfsrestore: media label: ""
+xfsrestore: file system id: 26dd5aa0-b901-4cf5-9b68-0c5753cb3ab8
+xfsrestore: session id: 62402423-7ae0-49ed-8ecb-9e5bc7642b91
+xfsrestore: media id: 47ba45ca-3417-4006-ab10-3dc6419b83e2
+xfsrestore: incorporating on-media session inventory into online inventory
+xfsrestore: /var/lib/xfsdump/inventory created
+xfsrestore: using on-media session inventory
+xfsrestore: searching media for directory dump
+xfsrestore: rewinding
+xfsrestore: examining media file 0
+xfsrestore: inventory session uuid (62402423-7ae0-49ed-8ecb-9e5bc7642b91) does not match the media header's session uuid (1771d9e8-a1ba-4e87-a61e-f6be97e41b45)
+xfsrestore: examining media file 1
+xfsrestore: inventory session uuid (62402423-7ae0-49ed-8ecb-9e5bc7642b91) does not match the media header's session uuid (1771d9e8-a1ba-4e87-a61e-f6be97e41b45)
+xfsrestore: examining media file 2
+xfsrestore: reading directories
+xfsrestore: 9 directories and 320 entries processed
+xfsrestore: directory post-processing
+xfsrestore: restore complete: 0 seconds elapsed
+xfsrestore: Restore Summary:
+xfsrestore:   stream 0 /dev/nst0 OK (success)
+xfsrestore: Restore Status: SUCCESS
+[root@rhel8 ~]# xfsdump -I
+file system 0:
+        fs id:          26dd5aa0-b901-4cf5-9b68-0c5753cb3ab8
+        session 0:
+                mount point:    rhel8:/boot
+                device:         rhel8:/dev/sda1
+                time:           Tue Sep 27 16:05:28 2022
+                session label:  "Test2"
+                session id:     62402423-7ae0-49ed-8ecb-9e5bc7642b91
+                level:          0
+                resumed:        NO
+                subtree:        NO
+                streams:        1
+                stream 0:
+                        pathname:       /dev/st0
+                        start:          ino 133 offset 0
+                        end:            ino 1572997 offset 0
+                        interrupted:    YES
+                        media files:    1
+                        media file 0:
+                                mfile index:    33554432
+                                mfile type:     data
+                                mfile size:     211187836911616
+                                mfile start:    ino 9583660007044415488 offset 0
+                                mfile end:      ino 9583686395323482112 offset 0
+                                media label:    ""
+                                media id:       47ba45ca-3417-4006-ab10-3dc6419b83e2
+xfsdump: Dump Status: SUCCESS
+[root@rhel8 ~]#
+[root@rhel8 ~]# ls /tmp/test2
+efi  grub2  loader
+
+The invalid start and end inode information cause xfsrestore to consider
+that non-directory files do not reside in the current media and will
+fail to restore them.
+
+The behaviour of an initial restore may succeed if the position of the
+tape is such that the data file is encountered before the inventory
+file, or if there is only one dump session on tape, xfsrestore is
+somewhat inconsistent in this regard. Subsequent restores will use the
+invalid on-line inventory and fail to restore files.
+
+Fix this by correctly unpacking the inventory data.
+
+Signed-off-by: Donald Douwsma <ddouwsma@redhat.com>
+Reviewed-by: Darrick J. Wong <djwong@kernel.org>
+Signed-off-by: Carlos Maiolino <cem@kernel.org>
+Signed-off-by: Pavel Reichl <preichl@redhat.com>
+---
+ inventory/inv_stobj.c | 27 +++++++--------------------
+ 1 file changed, 7 insertions(+), 20 deletions(-)
+
+diff --git a/inventory/inv_stobj.c b/inventory/inv_stobj.c
+index e2e8767..cdf3300 100644
+--- a/inventory/inv_stobj.c
++++ b/inventory/inv_stobj.c
+@@ -1008,7 +1008,7 @@
+         size_t             bufsz,
+ 	invt_sessinfo_t   *s )
+ {
+-	uint 		 i;
++	uint 		 i, j;
+ 	char	         *tmpbuf;
+ 	char 		 *p = (char *)bufp;
+ 	
+@@ -1087,26 +1087,13 @@
+ 
+ 	/* all the media files */
+ 	s->mfiles = (invt_mediafile_t *)p;
+-
+-#ifdef INVT_DELETION
+-	{
+-		int tmpfd = open( "moids", O_RDWR | O_CREAT, S_IRUSR|S_IWUSR );
+-		uint j;
+-		invt_mediafile_t *mmf = s->mfiles;
+-		for (i=0; i< s->ses->s_cur_nstreams; i++ ) {
+-			for (j=0; j< s->strms[ i ].st_nmediafiles; 
+-			     j++, mmf++ )
+-				xlate_invt_mediafile((invt_mediafile_t *)mmf, (invt_mediafile_t *)tmpbuf, 1);
+-				bcopy(tmpbuf, mmf, sizeof(invt_mediafile_t));
+-				put_invtrecord( tmpfd, &mmf->mf_moid, 
+-					 sizeof( uuid_t ), 0, SEEK_END, 0 );
+-		}
+-		close( tmpfd );
+-	}
+-#endif
+ 	for ( i = 0; i < s->ses->s_cur_nstreams; i++ ) {
+-		p += (size_t) ( s->strms[ i ].st_nmediafiles )
+-			* sizeof( invt_mediafile_t );
++		for(j = 0; j < s->strms[i].st_nmediafiles; j++) {
++			xlate_invt_mediafile((invt_mediafile_t *)p,
++					     (invt_mediafile_t *)tmpbuf, 1);
++			bcopy(tmpbuf, p, sizeof(invt_mediafile_t));
++			p +=  sizeof(invt_mediafile_t);
++		}
+ 	}
+ 	
+ 	/* sanity check the size of the buffer given to us vs. the size it 
+-- 
+2.41.0
+

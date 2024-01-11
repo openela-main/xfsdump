@@ -1,0 +1,286 @@
+From d7cba7410710cd3ec2c2d9fafd4d93437097f473 Mon Sep 17 00:00:00 2001
+From: Gao Xiang <hsiangkao@redhat.com>
+Date: Wed, 28 Sep 2022 15:10:52 -0400
+Subject: [PATCH] xfsrestore: fix rootdir due to xfsdump bulkstat misuse
+
+If rootino is wrong and misspecified to a subdir inode #,
+the following assertion could be triggered:
+  assert(ino != persp->p_rootino || hardh == persp->p_rooth);
+
+This patch adds a '-x' option (another awkward thing is that
+the codebase doesn't support long options) to address
+problamatic images by searching for the real dir, the reason
+that I don't enable it by default is that I'm not very confident
+with the xfsrestore codebase and xfsdump bulkstat issue will
+also be fixed immediately as well, so this function might be
+optional and only useful for pre-exist corrupted dumps.
+
+In details, my understanding of the original logic is
+ 1) xfsrestore will create a rootdir node_t (p_rooth);
+ 2) it will build the tree hierarchy from inomap and adopt
+    the parent if needed (so inodes whose parent ino hasn't
+    detected will be in the orphan dir, p_orphh);
+ 3) during this period, if ino == rootino and
+    hardh != persp->p_rooth (IOWs, another node_t with
+    the same ino # is created), that'd be definitely wrong.
+
+So the proposal fix is that
+ - considering the xfsdump root ino # is a subdir inode, it'll
+   trigger ino == rootino && hardh != persp->p_rooth condition;
+ - so we log this node_t as persp->p_rooth rather than the
+   initial rootdir node_t created in 1);
+ - we also know that this node is actually a subdir, and after
+   the whole inomap is scanned (IOWs, the tree is built),
+   the real root dir will have the orphan dir parent p_orphh;
+ - therefore, we walk up by the parent until some node_t has
+   the p_orphh, so that's it.
+
+Cc: Donald Douwsma <ddouwsma@redhat.com>
+Signed-off-by: Gao Xiang <hsiangkao@redhat.com>
+Signed-off-by: Hironori Shiina <shiina.hironori@fujitsu.com>
+Reviwed-by: Eric Sandeen <sandeen@redhat.com>
+Signed-off-by: Carlos Maiolino <cem@kernel.org>
+Signed-off-by: Pavel Reichl <preichl@redhat.com>
+---
+ common/main.c         |  1 +
+ man/man8/xfsrestore.8 | 14 +++++++++
+ restore/content.c     |  7 +++++
+ restore/getopt.h      |  4 +--
+ restore/tree.c        | 72 ++++++++++++++++++++++++++++++++++++++++---
+ restore/tree.h        |  2 ++
+ 6 files changed, 94 insertions(+), 6 deletions(-)
+
+diff --git a/common/main.c b/common/main.c
+index 1db07d4..6141ffb 100644
+--- a/common/main.c
++++ b/common/main.c
+@@ -984,6 +984,7 @@
+ 	ULO(_("(contents only)"),			GETOPT_TOC );
+ 	ULO(_("<verbosity {silent, verbose, trace}>"),	GETOPT_VERBOSITY );
+ 	ULO(_("(use small tree window)"),		GETOPT_SMALLWINDOW );
++        ULO(_("(try to fix rootdir due to xfsdump issue)"),GETOPT_FIXROOTDIR);
+ 	ULO(_("(don't restore extended file attributes)"),GETOPT_NOEXTATTR );
+ 	ULO(_("(restore root dir owner/permissions)"),	GETOPT_ROOTPERM );
+ 	ULO(_("(restore DMAPI event settings)"),	GETOPT_SETDM );
+diff --git a/man/man8/xfsrestore.8 b/man/man8/xfsrestore.8
+index 60e4309..df7dde0 100644
+--- a/man/man8/xfsrestore.8
++++ b/man/man8/xfsrestore.8
+@@ -240,6 +240,20 @@ but does not create or modify any files or directories.
+ It may be desirable to set the verbosity level to \f3silent\f1
+ when using this option.
+ .TP 5
++.B \-x
++This option may be useful to fix an issue which the files are restored
++to orphanage directory because of xfsdump (v3.1.7 - v3.1.9) problem.
++A normal dump cannot be restored with this option. This option works
++only for a corrupted dump.
++If a dump is created by problematic xfsdump (v3.1.7 - v3.1.9), you
++should see the contents of the dump with \f3\-t\f1 option before
++restoring. Then, if a file is placed to the orphanage directory, you need to
++use this \f3\-x\f1 option to restore the dump. Otherwise, you can restore
++the dump without this option.
++
++In the cumulative mode, this option is required only for a base (level 0)
++dump. You no longer need this option for level 1+ dumps.
++.TP 5
+ \f3\-v\f1 \f2verbosity\f1
+ .\" set inter-paragraph distance to 0
+ .PD 0
+diff --git a/restore/content.c b/restore/content.c
+index 8bb5fa4..488ae20 100644
+--- a/restore/content.c
++++ b/restore/content.c
+@@ -861,6 +861,7 @@ static int quotafilecheck(char *type, char *dstdir, char *quotafile);
+ 
+ bool_t content_media_change_needed;
+ bool_t restore_rootdir_permissions;
++bool_t need_fixrootdir;
+ char *media_change_alert_program = NULL;
+ size_t perssz;
+
+@@ -964,6 +964,7 @@
+ 	firststsensepr = firststsenseprvalpr = BOOL_FALSE;
+ 	stsz = 0;
+ 	interpr = BOOL_FALSE;
++	need_fixrootdir = BOOL_FALSE;
+ 	restore_rootdir_permissions = BOOL_FALSE;
+ 	optind = 1;
+ 	opterr = 0;
+@@ -1186,6 +1188,9 @@ content_init(int argc, char *argv[], size64_t vmsz)
+ 		case GETOPT_FMT2COMPAT:
+ 			tranp->t_truncategenpr = BOOL_TRUE;
+ 			break;
++		case GETOPT_FIXROOTDIR:
++			need_fixrootdir = BOOL_TRUE;
++			break;
+ 		}
+ 	}
+ 
+@@ -3129,6 +3134,8 @@ applydirdump(drive_t *drivep,
+ 			return rv;
+ 		}
+ 
++		if (need_fixrootdir)
++			tree_fixroot();
+ 		persp->s.dirdonepr = BOOL_TRUE;
+ 	}
+ 
+diff --git a/restore/getopt.h b/restore/getopt.h
+index b5bc004..b0c0c7d 100644
+--- a/restore/getopt.h
++++ b/restore/getopt.h
+@@ -26,7 +26,7 @@
+  * purpose is to contain that command string.
+  */
+ 
+-#define GETOPT_CMDSTRING	"a:b:c:def:himn:op:qrs:tv:wABCDEFG:H:I:JKL:M:NO:PQRS:TUVWX:Y:"
++#define GETOPT_CMDSTRING	"a:b:c:def:himn:op:qrs:tv:wxABCDEFG:H:I:JKL:M:NO:PQRS:TUVWX:Y:"
+ 
+ #define GETOPT_WORKSPACE	'a'	/* workspace dir (content.c) */
+ #define GETOPT_BLOCKSIZE        'b'     /* blocksize for rmt */
+@@ -51,7 +51,7 @@
+ /*				'u' */
+ #define	GETOPT_VERBOSITY	'v'	/* verbosity level (0 to 4 ) */
+ #define	GETOPT_SMALLWINDOW	'w'	/* use a small window for dir entries */
+-/*				'x' */
++#define GETOPT_FIXROOTDIR	'x'	/* try to fix rootdir due to bulkstat misuse */
+ /*				'y' */
+ /*				'z' */
+ #define	GETOPT_NOEXTATTR	'A'	/* do not restore ext. file attr. */
+diff --git a/restore/tree.c b/restore/tree.c
+index 5429b74..bfa07fe 100644
+--- a/restore/tree.c
++++ b/restore/tree.c
+@@ -15,7 +15,6 @@
+  * along with this program; if not, write the Free Software Foundation,
+  * Inc.,  51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+  */
+-
+ #include <stdio.h>
+ #include <unistd.h>
+ #include <stdlib.h>
+@@ -262,6 +261,7 @@ extern void usage(void);
+ extern size_t pgsz;
+ extern size_t pgmask;
+ extern bool_t restore_rootdir_permissions;
++extern bool_t need_fixrootdir;
+ 
+ /* forward declarations of locally defined static functions ******************/
+ 
+@@ -331,9 +331,45 @@
+ static char *persname = PERS_NAME;
+ static char *orphname = ORPH_NAME;
+ static xfs_ino_t orphino = ORPH_INO;
+-
++static nh_t orig_rooth = NH_NULL;
+ 
+ /* definition of locally defined global functions ****************************/
++ 
++void
++tree_fixroot(void)
++{
++       nh_t            rooth = persp->p_rooth;
++       xfs_ino_t       rootino;
++
++       while (1) {
++               nh_t    parh;
++               node_t *rootp = Node_map(rooth);
++
++               rootino = rootp->n_ino;
++               parh = rootp->n_parh;
++               Node_unmap(rooth, &rootp);
++
++               if (parh == rooth ||
++               /*
++                * since all new node (including non-parent)
++                * would be adopted into orphh
++                */
++                   parh == persp->p_orphh ||
++                   parh == NH_NULL)
++                       break;
++               rooth = parh;
++       }
++
++       if (rooth != persp->p_rooth) {
++               persp->p_rooth = rooth;
++               persp->p_rootino = rootino;
++               disown(rooth);
++               adopt(persp->p_rooth, persp->p_orphh, NH_NULL);
++
++               mlog(MLOG_NORMAL, _("fix root # to %llu (bind mount?)\n"),
++                    rootino);
++       }
++}
+ 
+ /* ARGSUSED */
+ bool_t
+@@ -754,7 +790,8 @@
+ 	/* lookup head of hardlink list
+ 	 */
+ 	hardh = link_hardh( ino, gen );
+-	assert( ino != persp->p_rootino || hardh == persp->p_rooth );
++	if (need_fixrootdir == BOOL_FALSE)
++	 assert( ino != persp->p_rootino || hardh == persp->p_rooth );
+ 
+ 	/* already present
+ 	 */
+@@ -1156,6 +1156,13 @@
+		      ino,
+ 		      gen );
+ 	}
++	/* found the fake rootino from subdir, need fix p_rooth. */
++	if (need_fixrootdir == BOOL_TRUE &&
++		persp->p_rootino == ino && hardh != persp->p_rooth) {
++		mlog(MLOG_NORMAL,
++			_("found fake rootino #%llu, will fix.\n"), ino);
++		persp->p_rooth = hardh;
++	}
+ 	return RV_OK;
+ }
+ 
+
+@@ -3841,7 +3885,26 @@
+ static nh_t
+ link_hardh( xfs_ino_t ino, gen_t gen )
+ {
+-       return hash_find( ino, gen );
++       nh_t tmp = hash_find(ino, gen);
++       
++       /*
++        * XXX (another workaround): the simply way is that don't reuse node_t
++        * with gen = 0 created in tree_init(). Otherwise, it could cause
++        * xfsrestore: tree.c:1003: tree_addent: Assertion
++        * `hardp->n_nrh != NRH_NULL' failed.
++        * and that node_t is a dir node but the fake rootino could be a non-dir
++        * plus reusing it could cause potential loop in tree hierarchy.
++        */
++       if (need_fixrootdir == BOOL_TRUE &&
++         ino == persp->p_rootino && gen == 0 &&
++         orig_rooth == NH_NULL) {
++               mlog(MLOG_NORMAL,
++_("link out fake rootino %llu with gen=0 created in tree_init()\n"), ino);
++               link_out(tmp);
++               orig_rooth = tmp;
++               return NH_NULL;
++       }
++       return tmp;
+ }
+ 
+ /* returns following node in hard link list
+diff --git a/restore/tree.h b/restore/tree.h
+index bf66e3d..f5bd4ff 100644
+--- a/restore/tree.h
++++ b/restore/tree.h
+@@ -18,6 +18,8 @@
+ #ifndef TREE_H
+ #define TREE_H
+ 
++void tree_fixroot(void);
++
+ /* tree_init - creates a new tree abstraction.
+  */
+ extern bool_t tree_init( char *hkdir,
+-- 
+2.41.0
+
