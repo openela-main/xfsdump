@@ -1,7 +1,7 @@
 Summary:	Backup and restore utilities for the XFS filesystem
 Name:		xfsdump
 Version:	3.1.12
-Release:	3%{?dist}
+Release:	4%{?dist}
 # Licensing based on generic "GNU GENERAL PUBLIC LICENSE"
 # in source, with no mention of version.
 License:	GPL+
@@ -16,6 +16,7 @@ BuildRequires:	gnupg2, xz
 Requires:	xfsprogs >= 2.6.30, attr >= 2.0.0
 
 Patch0:		0001-for-next-xfsrestore-fix-rootdir-due-to-xfsdump-bulkstat-misus.patch
+Patch1:		0002-v3.1.13-xfsrestore-suggest-x-rather-than-assert-for-false-ro.patch
 
 %description
 The xfsdump package contains xfsdump, xfsrestore and a number of
@@ -65,6 +66,10 @@ mkdir -p $RPM_BUILD_ROOT/%{_sharedstatedir}/xfsdump/inventory
 %{_sharedstatedir}/xfsdump/inventory
 
 %changelog
+* Fri Oct 26 2023 Pavel Reichl <preichl@redhat.com> - 3.1.12-4
+- xfsdump/xfsrestore: suggest recovery for false roots may be possible using -x
+- Related: RHEL-14038
+
 * Mon Jun 26 2023 Pavel Reichl <preichl@redhat.com> - 3.1.12-3
 - xfsdump: restoring inventory prevents non-directory files being restored from tape,
 - actually fixed by rebase to 3.1.12

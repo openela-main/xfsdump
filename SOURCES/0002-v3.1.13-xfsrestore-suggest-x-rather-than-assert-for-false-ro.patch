@@ -1,0 +1,57 @@
+From 8e97f9c2b3c362fa6dd872d72594713c713479bc Mon Sep 17 00:00:00 2001
+From: Donald Douwsma <ddouwsma@redhat.com>
+Date: Thu, 24 Aug 2023 12:07:04 +1000
+Subject: [PATCH] xfsrestore: suggest -x rather than assert for false roots
+
+If we're going to have a fix for false root problems its a good idea to
+let people know that there's a way to recover, error out with a useful
+message that mentions the `-x` option rather than just assert.
+
+Before
+
+  xfsrestore: searching media for directory dump
+  xfsrestore: reading directories
+  xfsrestore: tree.c:757: tree_begindir: Assertion `ino != persp->p_rootino || hardh == persp->p_rooth' failed.
+  Aborted
+
+After
+
+  xfsrestore: ERROR: tree.c:791: tree_begindir: Assertion `ino != persp->p_rootino || hardh == persp->p_rooth` failed.
+  xfsrestore: ERROR: False root detected. Recovery may be possible using the `-x` option
+  Aborted
+
+Fixes: d7cba7410710 ("xfsrestore: fix rootdir due to xfsdump bulkstat misuse")
+Signed-off-by: Donald Douwsma <ddouwsma@redhat.com>
+Reviewed-by: Darrick J. Wong <djwong@kernel.org>
+Reviewed-by: Carlos Maiolino <cmaiolino@redhat.com>
+Signed-off-by: Carlos Maiolino <cem@kernel.org>
+Signed-off-by: Pavel Reichl <preichl@redhat.com>
+---
+ restore/tree.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/restore/tree.c b/restore/tree.c
+index bfa07fe..6f3180f 100644
+--- a/restore/tree.c
++++ b/restore/tree.c
+@@ -783,8 +783,15 @@ tree_begindir(filehdr_t *fhdrp, dah_t *dahp)
+ 	/* lookup head of hardlink list
+ 	 */
+ 	hardh = link_hardh(ino, gen);
+-	if (need_fixrootdir == BOOL_FALSE)
+-		assert(ino != persp->p_rootino || hardh == persp->p_rooth);
++	if (need_fixrootdir == BOOL_FALSE &&
++	    !(ino != persp->p_rootino || hardh == persp->p_rooth)) {
++		mlog(MLOG_ERROR | MLOG_TREE,
++"%s:%d: %s: Assertion `ino != persp->p_rootino || hardh == persp->p_rooth` failed.\n",
++			__FILE__, __LINE__, __func__);
++		mlog(MLOG_ERROR | MLOG_TREE, _(
++"False root detected. Recovery may be possible using the `-x` option\n"));
++		return NH_NULL;
++	}
+ 
+ 	/* already present
+ 	 */
+-- 
+2.41.0
+
