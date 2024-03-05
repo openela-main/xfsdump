@@ -1,7 +1,7 @@
 Summary: Administrative utilities for the XFS filesystem
 Name: xfsdump
 Version: 3.1.8
-Release: 6%{?dist}
+Release: 7%{?dist}
 # Licensing based on generic "GNU GENERAL PUBLIC LICENSE"
 # in source, with no mention of version.
 License: GPL+
@@ -16,6 +16,7 @@ Patch4: 0005-v3.1.12-xfsrestore-fix-on-media-inventory-media-unpacking.patch
 Patch5: 0006-v3.1.12-xfsrestore-fix-on-media-inventory-stream-unpacking.patch
 Patch6: 0007-v3.1.12-xfsdump-fix-on-media-inventory-stream-packing.patch
 Patch7: 0008-v3.1.12-xfsrestore-untangle-inventory-unpacking-logic.patch
+Patch8: 0009-v3.1.13-xfsrestore-suggest-x-rather-than-assert-for-false-ro.patch
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires: libtool, gettext, gawk
 BuildRequires: xfsprogs-devel, libuuid-devel, libattr-devel ncurses-devel
@@ -48,6 +49,7 @@ subtrees may be restored from full or partial backups.
 %patch5 -p1
 %patch6 -p1
 %patch7 -p1
+%patch8 -p1
 
 %build
 %configure
@@ -81,6 +83,10 @@ rm -rf $RPM_BUILD_ROOT
 %{_sharedstatedir}/xfsdump/inventory
 
 %changelog
+* Thu Oct 26 2023 Pavel Reichl <preichl@redhat.com> - 3.1.8-7
+- xfsdump/xfsrestore: suggest recovery for false roots may be possible using -x
+- Related: RHEL-14494
+
 * Tue Jun 20 2023 Pavel Reichl <preichl@redhat.com> - 3.1.8-6
 - xfsdump: restoring inventory prevents non-directory files being restored from tape
 - related: bz#2166554
