@@ -15,14 +15,12 @@ Signed-off-by: Pavel Reichl <preichl@redhat.com>
  1 file changed, 5 insertions(+), 8 deletions(-)
 
 diff --git a/restore/content.c b/restore/content.c
-index b19bb90..8bb5fa4 100644
 --- a/restore/content.c
 +++ b/restore/content.c
-@@ -5467,18 +5467,14 @@
- 			/* ask inventory to convert buffer into session
+@@ -5468,19 +5468,16 @@ pi_addfile( Media_t *Mediap,
  			 * desc.
  			 */
--			sessp = 0;
+ 			sessp = 0;
 -			if ( ! buflen ) {
 -				ok = BOOL_FALSE;
 -			} else {
@@ -38,10 +36,14 @@ index b19bb90..8bb5fa4 100644
  				ok = BOOL_TRUE;
 -			    }
  			}
+-			if ( ! ok || ! sessp ) {
+-				mlog( MLOG_DEBUG | MLOG_WARNING | MLOG_MEDIA, _(
 +
- 			if ( ! ok || ! sessp ) {
- 				mlog( MLOG_DEBUG | MLOG_WARNING | MLOG_MEDIA, _(
++			if (!ok || !sessp) {
++				mlog(MLOG_DEBUG | MLOG_WARNING | MLOG_MEDIA, _(
  				      "on-media session "
+ 				      "inventory corrupt\n") );
+ 			} else {
 -- 
-2.41.0
+2.47.3
 
