@@ -1,7 +1,7 @@
 Summary:	Backup and restore utilities for the XFS filesystem
 Name:		xfsdump
 Version:	3.2.0
-Release:	1%{?dist}
+Release:	2%{?dist}
 # Licensing based on generic "GNU GENERAL PUBLIC LICENSE"
 # in source, with no mention of version.
 License:	GPL-1.0-or-later
@@ -14,6 +14,8 @@ BuildRequires:	libtool, gettext, gawk
 BuildRequires:	xfsprogs-devel, libuuid-devel, libattr-devel ncurses-devel
 BuildRequires:	gnupg2, xz
 Requires:	xfsprogs >= 2.6.30, attr >= 2.0.0
+
+Patch0: xfsdump-3.3.0-xfsrestore-only-process-subtrees-that-are-selected.patch
 
 %description
 The xfsdump package contains xfsdump, xfsrestore and a number of
@@ -34,7 +36,7 @@ subtrees may be restored from full or partial backups.
 
 %prep
 xzcat '%{SOURCE0}' | %{gpgverify} --keyring='%{SOURCE2}' --signature='%{SOURCE1}' --data=-
-%setup -q
+%autosetup -p1
 
 %build
 %configure
@@ -63,6 +65,10 @@ mkdir -p $RPM_BUILD_ROOT/%{_sharedstatedir}/xfsdump/inventory
 %{_sharedstatedir}/xfsdump/inventory
 
 %changelog
+* Thu Mar 26 2026 Donald Douwsma <ddouwsma@redhat.com> - 3.2.0-2
+- xfsrestore: only process subtrees that are selected
+- Related: RHEL-31075
+
 * Wed Nov 27 2024 Pavel Reichl <preichl@redhat.com> - 3.2.0-1
 - Update to new upstream version 3.2.0
 - Related: RHEL-69388
